@@ -114,9 +114,10 @@ export default async function handler(req, res) {
     const { url } = await put(
       `diagnostico/${f.nome || 'anonimo'}-audio-${idx}-${Date.now()}.webm`,
       buffer,
-      { access: 'public', contentType: 'audio/webm' }
+      { access: 'private', contentType: 'audio/webm' }
     )
-    audioUrls.push(url)
+    const proxyUrl = `https://diagnostico-ve.vercel.app/api/audio?url=${encodeURIComponent(url)}`
+    audioUrls.push(proxyUrl)
   }
 
   // Arquivos comuns continuam como anexos
