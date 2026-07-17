@@ -138,7 +138,7 @@ export default function Diagnostico() {
   if (submitted) {
     return (
       <>
-        <Head><title>Diagnóstico enviado · Vamos Escrever</title></Head>
+        <Head><title>Diagnóstico enviado · Vamos Escrever</title><link rel="icon" href="/favicon.png" /></Head>
         <style>{css}</style>
         <div className="page">
           <div className="d-success">
@@ -162,6 +162,7 @@ export default function Diagnostico() {
       <Head>
         <title>Diagnóstico de Escrita · Caixa Residencial × Vamos Escrever</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="icon" href="/favicon.png" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
       </Head>
