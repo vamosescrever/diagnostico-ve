@@ -1,6 +1,7 @@
 import { Resend } from 'resend'
 import formidable from 'formidable'
 import fs from 'fs'
+import { put } from '@vercel/blob'
 
 export const config = { api: { bodyParser: false } }
 
@@ -19,7 +20,7 @@ const Q_LABELS = {
   q10: '10. Situações ou textos específicos para abordar nos encontros',
 }
 
-function buildEmailHtml(fields, hasAudio, fileNames) {
+function buildEmailHtml(fields, audioUrls, fileNames) {
   const rosa = '#F83A72'
   const preto = '#111111'
 
@@ -32,12 +33,22 @@ function buildEmailHtml(fields, hasAudio, fileNames) {
       </tr>`
   }).join('')
 
-  const extras = []
-  if (hasAudio) extras.push(`🎙 ${hasAudio} áudio(s) gravado(s) — veja os anexos`)
-  if (fileNames.length) extras.push(`📎 ${fileNames.length} arquivo(s) anexado(s): ${fileNames.join(', ')}`)
+  const audiosHtml = audioUrls.length
+    ? `<div style="background:#fff;border-radius:12px;padding:20px 24px;margin-bottom:16px;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:${rosa};margin-bottom:12px;">Áudios gravados</div>
+        ${audioUrls.map((url, i) => `
+          <div style="margin-bottom:10px;">
+            <a href="${url}" style="display:inline-flex;align-items:center;gap:8px;padding:10px 16px;background:#F5F4F0;border-radius:10px;text-decoration:none;font-size:13px;font-weight:600;color:#111;">
+              🎙 Ouvir áudio ${i + 1}
+            </a>
+          </div>`).join('')}
+      </div>`
+    : ''
 
-  const extrasHtml = extras.length
-    ? `<div style="background:#fffbe6;border:1px solid #fce96a;border-radius:8px;padding:14px 16px;margin:24px 0;font-size:13px;color:#555;">${extras.join('<br>')}</div>`
+  const extrasHtml = fileNames.length
+    ? `<div style="background:#fffbe6;border:1px solid #fce96a;border-radius:8px;padding:14px 16px;margin:0 0 16px;font-size:13px;color:#555;">
+        📎 ${fileNames.length} arquivo(s) anexado(s): ${fileNames.join(', ')}
+      </div>`
     : ''
 
   return `
@@ -58,6 +69,7 @@ function buildEmailHtml(fields, hasAudio, fileNames) {
       <div style="font-size:13px;color:#666;">${fields.cargo || '—'}</div>
     </div>
 
+    ${audiosHtml}
     ${extrasHtml}
 
     <div style="background:#fff;border-radius:12px;overflow:hidden;margin-bottom:16px;">
@@ -86,29 +98,41 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Erro ao processar o envio.' })
   }
 
-  // Normaliza campos (formidable retorna arrays)
   const f = {}
   for (const [k, v] of Object.entries(fields)) {
     f[k] = Array.isArray(v) ? v[0] : v
   }
 
-  // Monta anexos
-  const attachments = []
-  const audioCount = Object.keys(files).filter(k => k.startsWith('audio_')).length
-  const fileNames = []
-
-  for (const [key, fileArr] of Object.entries(files)) {
-    const file = Array.isArray(fileArr) ? fileArr[0] : fileArr
-    if (!file || !file.filepath) continue
-    const content = fs.readFileSync(file.filepath).toString('base64')
-    const name = key.startsWith('audio_')
-      ? `audio-${parseInt(key.replace('audio_', '')) + 1}.webm`
-      : file.originalFilename || `arquivo-${key}.bin`
-    attachments.push({ filename: name, content })
-    if (!key.startsWith('audio_')) fileNames.push(file.originalFilename || name)
+  // Upload áudios para o Vercel Blob e coleta as URLs
+  const audioUrls = []
+  const audioKeys = Object.keys(files).filter(k => k.startsWith('audio_')).sort()
+  for (const key of audioKeys) {
+    const file = Array.isArray(files[key]) ? files[key][0] : files[key]
+    if (!file?.filepath) continue
+    const buffer = fs.readFileSync(file.filepath)
+    const idx = parseInt(key.replace('audio_', '')) + 1
+    const { url } = await put(
+      `diagnostico/${f.nome || 'anonimo'}-audio-${idx}-${Date.now()}.webm`,
+      buffer,
+      { access: 'public', contentType: 'audio/webm' }
+    )
+    audioUrls.push(url)
   }
 
-  const html = buildEmailHtml(f, audioCount, fileNames)
+  // Arquivos comuns continuam como anexos
+  const attachments = []
+  const fileNames = []
+  for (const [key, fileArr] of Object.entries(files)) {
+    if (key.startsWith('audio_')) continue
+    const file = Array.isArray(fileArr) ? fileArr[0] : fileArr
+    if (!file?.filepath) continue
+    const content = fs.readFileSync(file.filepath).toString('base64')
+    const name = file.originalFilename || `arquivo-${key}.bin`
+    attachments.push({ filename: name, content })
+    fileNames.push(name)
+  }
+
+  const html = buildEmailHtml(f, audioUrls, fileNames)
 
   try {
     await resend.emails.send({
